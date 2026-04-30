@@ -137,21 +137,32 @@ async function fmpFetch(path, apiKey) {
   const sep = path.includes('?') ? '&' : '?';
   const url = `${FMP_BASE}${path}${sep}apikey=${encodeURIComponent(apiKey)}`;
   const res = await fetch(url);
+
+  // Tenta sempre di leggere il body (FMP restituisce JSON anche sugli errori)
+  let bodyText = '';
+  let body = null;
+  try {
+    bodyText = await res.text();
+    body = bodyText ? JSON.parse(bodyText) : null;
+  } catch { /* corpo non-JSON */ }
+
+  const fmpMsg = body && typeof body === 'object'
+    ? (body['Error Message'] || body['error'] || body['message'] || '')
+    : '';
+
   if (res.status === 401 || res.status === 403) {
-    throw new ApiError('API key non valida o non autorizzata', 'auth');
+    throw new ApiError(fmpMsg || `HTTP ${res.status}: API key non valida o non autorizzata per questo endpoint`, 'auth');
   }
   if (res.status === 429) {
-    throw new ApiError('Quota API esaurita', 'quota');
+    throw new ApiError(fmpMsg || 'Quota API esaurita', 'quota');
   }
   if (!res.ok) {
-    throw new ApiError(`Errore HTTP ${res.status}`, 'http');
+    throw new ApiError(fmpMsg || `Errore HTTP ${res.status}`, 'http');
   }
-  const body = await res.json();
-  if (body && typeof body === 'object' && body['Error Message']) {
-    const msg = body['Error Message'];
-    if (/limit|quota/i.test(msg)) throw new ApiError('Quota API esaurita', 'quota');
-    if (/key|invalid/i.test(msg)) throw new ApiError('API key non valida', 'auth');
-    throw new ApiError(msg, 'api');
+  if (fmpMsg) {
+    if (/limit|quota|exceed/i.test(fmpMsg)) throw new ApiError(fmpMsg, 'quota');
+    if (/key|invalid|unauthor|premium|subscription|upgrade/i.test(fmpMsg)) throw new ApiError(fmpMsg, 'auth');
+    throw new ApiError(fmpMsg, 'api');
   }
   return body;
 }
@@ -161,9 +172,25 @@ class ApiError extends Error {
 }
 
 async function validateApiKey(key) {
-  // Endpoint leggero, disponibile su tier free
-  const data = await fmpFetch(`/profile/AAPL`, key);
-  return Array.isArray(data) && data.length > 0;
+  // Prova più endpoint: alcuni piani FMP non includono /profile
+  const endpoints = ['/quote/AAPL', '/profile/AAPL', '/search-ticker?query=AAPL&limit=1'];
+  let lastErr = null;
+  for (const ep of endpoints) {
+    try {
+      const data = await fmpFetch(ep, key);
+      if (Array.isArray(data) && data.length > 0) return true;
+      if (data && typeof data === 'object') return true;
+    } catch (err) {
+      lastErr = err;
+      // Se è chiaramente un problema di key (non di endpoint), interrompi
+      if (err instanceof ApiError && err.kind === 'auth' && /invalid|unauthorized/i.test(err.message)) {
+        throw err;
+      }
+      // Altrimenti prova il prossimo endpoint
+    }
+  }
+  if (lastErr) throw lastErr;
+  return false;
 }
 
 async function fetchProfile(symbol, apiKey) {
