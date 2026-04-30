@@ -1,2 +1,0 @@
-# calendario-trimestrali
-calendario trimestrali
