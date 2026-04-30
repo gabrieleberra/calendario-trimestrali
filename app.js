@@ -10,7 +10,7 @@
 /* ---------------------------------------------------------
    COSTANTI
    --------------------------------------------------------- */
-const FMP_BASE = 'https://financialmodelingprep.com/api/v3';
+const FMP_BASE = 'https://financialmodelingprep.com/stable';
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 ore
 const FETCH_CONCURRENCY = 4;
 
@@ -172,21 +172,23 @@ class ApiError extends Error {
 }
 
 async function validateApiKey(key) {
-  // Prova più endpoint: alcuni piani FMP non includono /profile
-  const endpoints = ['/quote/AAPL', '/profile/AAPL', '/search-ticker?query=AAPL&limit=1'];
+  // Stable API: prova più endpoint perché i piani variano
+  const endpoints = [
+    '/quote?symbol=AAPL',
+    '/profile?symbol=AAPL',
+    '/search-symbol?query=AAPL&limit=1',
+  ];
   let lastErr = null;
   for (const ep of endpoints) {
     try {
       const data = await fmpFetch(ep, key);
       if (Array.isArray(data) && data.length > 0) return true;
-      if (data && typeof data === 'object') return true;
+      if (data && typeof data === 'object' && !Array.isArray(data)) return true;
     } catch (err) {
       lastErr = err;
-      // Se è chiaramente un problema di key (non di endpoint), interrompi
-      if (err instanceof ApiError && err.kind === 'auth' && /invalid|unauthorized/i.test(err.message)) {
+      if (err instanceof ApiError && err.kind === 'auth' && /invalid api key|unauthor/i.test(err.message)) {
         throw err;
       }
-      // Altrimenti prova il prossimo endpoint
     }
   }
   if (lastErr) throw lastErr;
@@ -194,13 +196,14 @@ async function validateApiKey(key) {
 }
 
 async function fetchProfile(symbol, apiKey) {
-  const data = await fmpFetch(`/profile/${encodeURIComponent(symbol)}`, apiKey);
+  const data = await fmpFetch(`/profile?symbol=${encodeURIComponent(symbol)}`, apiKey);
   if (!Array.isArray(data) || data.length === 0) return null;
   return data[0];
 }
 
 async function fetchEarnings(symbol, apiKey) {
-  const data = await fmpFetch(`/historical/earning_calendar/${encodeURIComponent(symbol)}`, apiKey);
+  // Stable API: /earnings?symbol=...&limit=N (default ~10 trimestri)
+  const data = await fmpFetch(`/earnings?symbol=${encodeURIComponent(symbol)}&limit=20`, apiKey);
   if (!Array.isArray(data)) return [];
   return data;
 }
@@ -292,15 +295,16 @@ function buildEvents() {
     for (const e of entry.earnings) {
       const date = e.date;
       if (!date) continue;
-      const time = (e.time || '').toLowerCase();
+      const time = (e.time || e.hour || '').toString().toLowerCase();
       let timeCode = 'unknown';
-      if (time === 'bmo') timeCode = 'bmo';
-      else if (time === 'amc') timeCode = 'amc';
+      if (time === 'bmo' || time === 'pre') timeCode = 'bmo';
+      else if (time === 'amc' || time === 'post') timeCode = 'amc';
       else if (time === 'dmh' || time === '--') timeCode = 'dmh';
-      const eps = num(e.eps);
-      const epsEst = num(e.epsEstimated);
-      const rev = num(e.revenue);
-      const revEst = num(e.revenueEstimated);
+      // Stable API: epsActual/revenueActual; Legacy: eps/revenue
+      const eps = num(e.epsActual ?? e.eps);
+      const epsEst = num(e.epsEstimated ?? e.estimatedEps);
+      const rev = num(e.revenueActual ?? e.revenue);
+      const revEst = num(e.revenueEstimated ?? e.estimatedRevenue);
       events.push({
         symbol: sym,
         date,
@@ -716,12 +720,14 @@ function buildEarningsCard(ev) {
           <thead><tr><th>Data</th><th>EPS</th><th>Stim.</th><th>Surprise</th></tr></thead>
           <tbody>
             ${history.map(h => {
-              const sa = surprisePct(num(h.eps), num(h.epsEstimated));
+              const hEps = num(h.epsActual ?? h.eps);
+              const hEpsEst = num(h.epsEstimated ?? h.estimatedEps);
+              const sa = surprisePct(hEps, hEpsEst);
               const cls = sa == null ? '' : (sa >= 0 ? 'pos' : 'neg');
               return `<tr>
                 <td>${escapeHtml(h.date)}</td>
-                <td>${fmtNum(h.eps)}</td>
-                <td>${fmtNum(h.epsEstimated)}</td>
+                <td>${fmtNum(hEps)}</td>
+                <td>${fmtNum(hEpsEst)}</td>
                 <td class="${cls}">${sa == null ? '—' : sa.toFixed(1) + '%'}</td>
               </tr>`;
             }).join('')}
