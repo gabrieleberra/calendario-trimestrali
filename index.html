@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="description" content="Calendario delle trimestrali (earnings) per il tuo portafoglio. Powered by Financial Modeling Prep." />
+<title>Calendario Trimestrali</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<header class="app-header">
+  <div class="header-inner">
+    <h1 class="app-title">📈 Calendario Trimestrali</h1>
+    <div class="header-actions">
+      <div class="view-toggle" role="tablist" aria-label="Cambia vista">
+        <button id="view-calendar" class="view-btn active" role="tab" aria-selected="true">📅 Calendario</button>
+        <button id="view-list" class="view-btn" role="tab" aria-selected="false">📋 Lista</button>
+      </div>
+      <button id="theme-toggle" class="icon-btn" aria-label="Cambia tema">🌓</button>
+    </div>
+  </div>
+</header>
+
+<main class="app-main">
+
+  <!-- BANNER PRIMA APERTURA -->
+  <section id="welcome-banner" class="banner hidden">
+    <div class="banner-content">
+      <strong>Benvenuto!</strong>
+      Per usare l'app, inserisci la tua <a href="https://site.financialmodelingprep.com/developer/docs" target="_blank" rel="noopener">API key Financial Modeling Prep</a>
+      qui sotto. La key è salvata <strong>solo nel tuo browser</strong> (localStorage) e non viene mai inviata ad altri server tranne FMP.
+      <button class="banner-close" aria-label="Chiudi">×</button>
+    </div>
+  </section>
+
+  <!-- PANNELLO LATERALE: PORTAFOGLIO + API KEY + FILTRI -->
+  <div class="layout">
+    <aside class="sidebar">
+
+      <!-- API KEY -->
+      <section class="card">
+        <h2>🔑 API key FMP</h2>
+        <div class="field-group">
+          <input type="password" id="api-key-input" placeholder="Incolla qui la tua API key" autocomplete="off" />
+          <div class="btn-row">
+            <button id="api-key-save" class="btn btn-primary">Salva</button>
+            <button id="api-key-test" class="btn">Verifica</button>
+            <button id="api-key-clear" class="btn btn-danger">Cancella</button>
+          </div>
+          <div id="api-key-status" class="status"></div>
+        </div>
+      </section>
+
+      <!-- PORTAFOGLIO -->
+      <section class="card">
+        <h2>💼 Portafoglio</h2>
+
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="manual">Manuale</button>
+          <button class="tab-btn" data-tab="csv">CSV</button>
+        </div>
+
+        <div class="tab-pane active" data-pane="manual">
+          <textarea id="ticker-input" rows="4" placeholder="AAPL, MSFT, ENI.MI&#10;ASML.AS&#10;HSBA.L"></textarea>
+          <div class="btn-row">
+            <button id="add-tickers" class="btn btn-primary">➕ Aggiungi</button>
+          </div>
+          <p class="hint">Separa con virgola, spazio o invio. Suffissi: .MI (Italia), .L (Londra), .DE (Germania), .AS (Olanda), .PA (Parigi), ecc.</p>
+        </div>
+
+        <div class="tab-pane" data-pane="csv">
+          <input type="file" id="csv-input" accept=".csv,text/csv" />
+          <p class="hint">Il CSV deve contenere una colonna <code>ticker</code> (header opzionale). Separatori supportati: <code>,</code> <code>;</code> tab.</p>
+        </div>
+
+        <div class="portfolio-stats">
+          <span id="portfolio-count">0 ticker in portafoglio</span>
+        </div>
+
+        <ul id="portfolio-list" class="portfolio-list"></ul>
+
+        <div class="btn-row">
+          <button id="refresh-data" class="btn btn-primary">🔄 Aggiorna dati</button>
+          <button id="export-portfolio-csv" class="btn">⬇ CSV</button>
+          <button id="clear-portfolio" class="btn btn-danger">🗑 Svuota</button>
+        </div>
+      </section>
+
+      <!-- FILTRI -->
+      <section class="card">
+        <h2>🎚 Filtri</h2>
+
+        <label class="field-label">Range data
+          <div class="preset-chips">
+            <button class="chip" data-preset="week">Questa settimana</button>
+            <button class="chip" data-preset="4weeks">Prossime 4 settimane</button>
+            <button class="chip" data-preset="quarter">Prossimo trimestre</button>
+            <button class="chip" data-preset="all">Tutto</button>
+          </div>
+          <div class="date-range">
+            <input type="date" id="date-from" />
+            <span>→</span>
+            <input type="date" id="date-to" />
+          </div>
+        </label>
+
+        <label class="field-label">Periodo
+          <select id="filter-time">
+            <option value="all">Tutte</option>
+            <option value="future">Solo future</option>
+            <option value="past">Solo passate</option>
+          </select>
+        </label>
+
+        <label class="field-label">Settore
+          <select id="filter-sector" multiple size="5"></select>
+        </label>
+
+        <label class="field-label">Ricerca
+          <input type="search" id="filter-search" placeholder="Ticker o nome azienda" />
+        </label>
+
+        <button id="reset-filters" class="btn">↺ Reset filtri</button>
+      </section>
+
+      <!-- EXPORT -->
+      <section class="card">
+        <h2>📤 Export .ics</h2>
+        <div class="btn-row btn-row-stack">
+          <button id="export-ics-filtered" class="btn btn-primary">⬇ Solo filtrate</button>
+          <button id="export-ics-all" class="btn">⬇ Tutto il portafoglio</button>
+        </div>
+        <p class="hint">File compatibile con Google Calendar, Outlook, Apple Calendar.</p>
+      </section>
+
+    </aside>
+
+    <!-- AREA PRINCIPALE -->
+    <section class="content">
+      <!-- LOADING -->
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <span id="loading-text">Caricamento…</span>
+      </div>
+
+      <!-- EMPTY STATE -->
+      <div id="empty-state" class="empty-state">
+        <h2>Inizia da qui 👋</h2>
+        <ol>
+          <li>Inserisci la tua <strong>API key FMP</strong> nel pannello a sinistra.</li>
+          <li>Aggiungi i ticker del tuo portafoglio (manualmente o via CSV).</li>
+          <li>Clicca <strong>🔄 Aggiorna dati</strong> per scaricare le trimestrali.</li>
+        </ol>
+        <p class="hint">Tutti i dati restano nel tuo browser. Nessun server intermedio.</p>
+      </div>
+
+      <!-- VISTA CALENDARIO -->
+      <div id="calendar-view" class="hidden">
+        <div class="calendar-controls">
+          <button id="cal-prev" class="btn">◀</button>
+          <h2 id="cal-title"></h2>
+          <button id="cal-next" class="btn">▶</button>
+          <button id="cal-today" class="btn">Oggi</button>
+        </div>
+        <div class="calendar-legend">
+          <span class="legend-item"><span class="dot bmo"></span> BMO (pre-apertura)</span>
+          <span class="legend-item"><span class="dot amc"></span> AMC (post-chiusura)</span>
+          <span class="legend-item"><span class="dot dmh"></span> DMH (durante)</span>
+          <span class="legend-item"><span class="dot pos"></span> Surprise +</span>
+          <span class="legend-item"><span class="dot neg"></span> Surprise −</span>
+        </div>
+        <div class="calendar-grid" id="calendar-grid"></div>
+      </div>
+
+      <!-- VISTA LISTA -->
+      <div id="list-view" class="hidden">
+        <div class="list-controls">
+          <label>Ordinamento:
+            <select id="sort-order">
+              <option value="asc">Data crescente</option>
+              <option value="desc">Data decrescente</option>
+            </select>
+          </label>
+          <span id="list-count" class="muted"></span>
+        </div>
+        <div id="list-content"></div>
+      </div>
+    </section>
+  </div>
+
+</main>
+
+<!-- MODAL DETTAGLI GIORNO -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <header class="modal-header">
+      <h2 id="modal-title"></h2>
+      <button id="modal-close" class="icon-btn" aria-label="Chiudi">×</button>
+    </header>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<footer class="app-footer">
+  <span>Dati forniti da <a href="https://financialmodelingprep.com" target="_blank" rel="noopener">Financial Modeling Prep</a> · Sito statico open source · Nessun server intermedio</span>
+</footer>
+
+<script src="app.js" defer></script>
+</body>
+</html>

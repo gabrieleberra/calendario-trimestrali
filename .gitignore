@@ -1,0 +1,26 @@
+# Eventuali file con segreti — non committare mai
+.env
+.env.*
+*.key
+*.pem
+secrets.json
+api-key.txt
+config.local.js
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Output / build (non usati, ma per sicurezza)
+node_modules/
+dist/
+build/
+.cache/
+
+# Log
+*.log
